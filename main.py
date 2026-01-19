@@ -44,22 +44,6 @@ user_db = UserDB()
 # ユーザーの状態管理（メモリ上、本番はRedis推奨）
 user_states = {}
 
-# スタイルプリセット
-STYLE_PRESETS = {
-    "modern": {
-        "name": "モダン",
-        "prompt_additions": "・外壁はモダンなガルバリウム鋼板の質感\n・シャープでミニマルなデザイン\n・大きな窓ガラス"
-    },
-    "japanese": {
-        "name": "和風",
-        "prompt_additions": "・外壁は漆喰や木目調の質感\n・和瓦の屋根\n・落ち着いた日本家屋の雰囲気"
-    },
-    "natural": {
-        "name": "ナチュラル",
-        "prompt_additions": "・外壁は温かみのある木目調サイディング\n・緑豊かな植栽\n・自然と調和したデザイン"
-    }
-}
-
 # ベースプロンプト（非公開）
 BASE_PROMPT = """添付の建築パースをフォトリアルにしてください。
 建物の形状・構成・アングル・奥行・カメラ位置・パースラインは絶対に変更しないでください。
@@ -69,14 +53,18 @@ BASE_PROMPT = """添付の建築パースをフォトリアルにしてくださ
 ・外観の形状を一切変えない
 ・窓の位置、壁のライン、屋根形状、陰影の付き方の方向はそのまま
 ・広角率を変えない
-・縦横比を維持
-・背景の構成を変えない
+・縦横比（例：3:4、横長）を維持
+・背景の構成を変えない（変更したい場合は指定する）
 
-【フォトリアル化条件】
-{style_additions}
+【今回のフォトリアル化条件】
+・外壁は窯業系サイディングの質感を出す
+・道路はアスファルトの質感を出す
 ・背景：住宅街
+・コンクリート反射：なし
+・窓ガラス反射：あり
 ・天候：晴れ
 ・人物：不要
+{custom_prompt}
 
 【重要】
 建物の形状や寸法感が変わるような解釈は絶対にしないでください。
@@ -128,7 +116,7 @@ async def send_welcome_message(user_id: str, reply_token: str):
                         text="AI住宅パースへようこそ！\n\n"
                              "使い方はカンタン：\n"
                              "1. 建築パースの写真を送信\n"
-                             "2. スタイルを選択\n"
+                             "2. 追加指示を入力（モダン、和風など）\n"
                              "3. 30秒で完成！\n\n"
                              "毎月3回まで無料でお試しいただけます。\n\n"
                              "さっそく写真を送ってみてください！"
@@ -153,15 +141,15 @@ def handle_image(event: MessageEvent):
     # 画像を保存して状態を更新
     user_states[user_id] = {
         "image_message_id": message_id,
-        "status": "waiting_style"
+        "status": "waiting_prompt"
     }
 
-    # スタイル選択を促す
-    asyncio.create_task(send_style_selection(user_id, event.reply_token))
+    # カスタムプロンプト入力を促す
+    asyncio.create_task(send_prompt_input_message(user_id, event.reply_token))
 
 
-async def send_style_selection(user_id: str, reply_token: str):
-    """スタイル選択メッセージ送信"""
+async def send_prompt_input_message(user_id: str, reply_token: str):
+    """カスタムプロンプト入力メッセージ送信"""
     async with AsyncApiClient(configuration) as api_client:
         api = AsyncMessagingApi(api_client)
 
@@ -170,25 +158,37 @@ async def send_style_selection(user_id: str, reply_token: str):
                 reply_token=reply_token,
                 messages=[
                     TextMessage(
-                        text="スタイルを選んでください",
+                        text="追加の指示があれば入力してください。\n\n"
+                             "例：\n"
+                             "・モダンな雰囲気で\n"
+                             "・和風テイストに\n"
+                             "・外壁をブラックに\n"
+                             "・緑を多めに\n\n"
+                             "そのまま生成する場合は「OK」と送信してください。",
                         quick_reply=QuickReply(
                             items=[
                                 QuickReplyItem(
                                     action=MessageAction(
+                                        label="そのまま生成",
+                                        text="OK"
+                                    )
+                                ),
+                                QuickReplyItem(
+                                    action=MessageAction(
                                         label="モダン",
-                                        text="モダン"
+                                        text="モダンな雰囲気で"
                                     )
                                 ),
                                 QuickReplyItem(
                                     action=MessageAction(
                                         label="和風",
-                                        text="和風"
+                                        text="和風テイストで"
                                     )
                                 ),
                                 QuickReplyItem(
                                     action=MessageAction(
                                         label="ナチュラル",
-                                        text="ナチュラル"
+                                        text="ナチュラルな雰囲気で"
                                     )
                                 ),
                             ]
@@ -205,27 +205,21 @@ def handle_text(event: MessageEvent):
     user_id = event.source.user_id
     text = event.message.text
 
-    # スタイル選択待ちの場合
-    if user_id in user_states and user_states[user_id].get("status") == "waiting_style":
-        style_key = None
-        for key, preset in STYLE_PRESETS.items():
-            if preset["name"] == text:
-                style_key = key
-                break
+    # プロンプト入力待ちの場合
+    if user_id in user_states and user_states[user_id].get("status") == "waiting_prompt":
+        # カスタムプロンプトを取得（OKの場合は空）
+        custom_prompt = "" if text.upper() == "OK" else f"\n・{text}"
 
-        if style_key:
-            # 生成開始
-            asyncio.create_task(
-                process_generation(
-                    user_id,
-                    user_states[user_id]["image_message_id"],
-                    style_key,
-                    event.reply_token
-                )
+        # 生成開始
+        asyncio.create_task(
+            process_generation(
+                user_id,
+                user_states[user_id]["image_message_id"],
+                custom_prompt,
+                event.reply_token
             )
-            del user_states[user_id]
-        else:
-            asyncio.create_task(send_invalid_style_message(user_id, event.reply_token))
+        )
+        del user_states[user_id]
     else:
         # 画像を送るよう促す
         asyncio.create_task(send_prompt_image_message(user_id, event.reply_token))
@@ -251,34 +245,6 @@ async def send_prompt_image_message(user_id: str, reply_token: str):
         )
 
 
-async def send_invalid_style_message(user_id: str, reply_token: str):
-    """無効なスタイル選択時のメッセージ"""
-    async with AsyncApiClient(configuration) as api_client:
-        api = AsyncMessagingApi(api_client)
-
-        await api.reply_message(
-            ReplyMessageRequest(
-                reply_token=reply_token,
-                messages=[
-                    TextMessage(
-                        text="下のボタンからスタイルを選んでください",
-                        quick_reply=QuickReply(
-                            items=[
-                                QuickReplyItem(
-                                    action=MessageAction(label="モダン", text="モダン")
-                                ),
-                                QuickReplyItem(
-                                    action=MessageAction(label="和風", text="和風")
-                                ),
-                                QuickReplyItem(
-                                    action=MessageAction(label="ナチュラル", text="ナチュラル")
-                                ),
-                            ]
-                        )
-                    )
-                ]
-            )
-        )
 
 
 async def send_limit_reached_message(user_id: str, reply_token: str):
@@ -301,7 +267,7 @@ async def send_limit_reached_message(user_id: str, reply_token: str):
         )
 
 
-async def process_generation(user_id: str, image_message_id: str, style_key: str, reply_token: str):
+async def process_generation(user_id: str, image_message_id: str, custom_prompt: str, reply_token: str):
     """画像生成処理"""
     async with AsyncApiClient(configuration) as api_client:
         api = AsyncMessagingApi(api_client)
@@ -320,9 +286,8 @@ async def process_generation(user_id: str, image_message_id: str, style_key: str
             # LINE から画像を取得
             image_content = await get_line_image(image_message_id)
 
-            # プロンプト生成
-            style = STYLE_PRESETS[style_key]
-            prompt = BASE_PROMPT.format(style_additions=style["prompt_additions"])
+            # プロンプト生成（カスタムプロンプトを追加）
+            prompt = BASE_PROMPT.format(custom_prompt=custom_prompt)
 
             # KIE.AI で生成
             result_url = await generate_parse(image_content, prompt)
@@ -342,7 +307,7 @@ async def process_generation(user_id: str, image_message_id: str, style_key: str
                                 preview_image_url=result_url
                             ),
                             TextMessage(
-                                text=f"完成しました！（{style['name']}スタイル）\n\n"
+                                text=f"完成しました！\n\n"
                                      f"今月の残り回数: {remaining}回"
                             )
                         ]
