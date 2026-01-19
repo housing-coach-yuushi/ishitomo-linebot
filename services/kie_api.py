@@ -223,12 +223,12 @@ async def generate_parse_multi(image_bytes: bytes, prompt: str, count: int = 4) 
     Returns:
         生成された画像のURLリスト
     """
-    # 使用する4つの異なるモデル/エンジン
+    # 使用する4つの異なるモデル/エンジン（元々のもの）
     MODELS = [
+        "nano-banana-pro",
+        "gpt-image/1.5-image-to-image",
         "seedream/4.5-edit",
-        "flux/1.1-pro-ultra",
-        "ideogram/v2",
-        "recraft/v3",
+        "flux-2/flex-image-to-image",
     ]
 
     try:
