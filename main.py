@@ -29,7 +29,7 @@ from linebot.v3.webhooks import (
 from linebot.v3.exceptions import InvalidSignatureError
 
 from config import settings
-from services.kie_api import generate_parse
+from services.kie_api import generate_parse_multi
 from services.user_db import UserDB
 
 app = FastAPI(title="AI Parse LINE Bot")
@@ -44,8 +44,8 @@ user_db = UserDB()
 # ユーザーの状態管理（メモリ上、本番はRedis推奨）
 user_states = {}
 
-# ベースプロンプト（非公開）
-BASE_PROMPT = """添付の建築パースをフォトリアルにしてください。
+# 外観用ベースプロンプト
+EXTERIOR_BASE_PROMPT = """添付の建築パースをフォトリアルにしてください。
 建物の形状・構成・アングル・奥行・カメラ位置・パースラインは絶対に変更しないでください。
 素材・質感・光の表現だけを実写に寄せてください。
 
@@ -68,6 +68,31 @@ BASE_PROMPT = """添付の建築パースをフォトリアルにしてくださ
 
 【重要】
 建物の形状や寸法感が変わるような解釈は絶対にしないでください。
+元画像の輪郭線と構造はそのまま、質感だけを高精細フォトリアルに仕上げてください。"""
+
+# 内観用ベースプロンプト
+INTERIOR_BASE_PROMPT = """添付の建築内観パースをフォトリアルにしてください。
+部屋の形状・構成・アングル・奥行・カメラ位置・パースラインは絶対に変更しないでください。
+素材・質感・光の表現だけを実写に寄せてください。
+
+【必ず守ってほしい内容】
+・部屋の形状を一切変えない
+・窓の位置、壁のライン、天井形状、陰影の付き方の方向はそのまま
+・広角率を変えない
+・縦横比（例：3:4、横長）を維持
+・家具・設備の配置を変えない
+
+【今回のフォトリアル化条件】
+・床材はフローリングの質感を出す
+・壁は白いクロスの質感を出す
+・天井は白いクロスの質感を出す
+・窓ガラス反射：あり
+・照明：自然光メイン（昼間の雰囲気）
+・人物：不要
+{custom_prompt}
+
+【重要】
+部屋の形状や寸法感が変わるような解釈は絶対にしないでください。
 元画像の輪郭線と構造はそのまま、質感だけを高精細フォトリアルに仕上げてください。"""
 
 
@@ -116,8 +141,9 @@ async def send_welcome_message(user_id: str, reply_token: str):
                         text="AI住宅パースへようこそ！\n\n"
                              "使い方はカンタン：\n"
                              "1. 建築パースの写真を送信\n"
-                             "2. 追加指示を入力（モダン、和風など）\n"
-                             "3. 30秒で完成！\n\n"
+                             "2. 内観/外観を選択\n"
+                             "3. 追加指示を入力\n"
+                             "4. 4枚のパースが完成！\n\n"
                              "毎月3回まで無料でお試しいただけます。\n\n"
                              "さっそく写真を送ってみてください！"
                     )
@@ -141,15 +167,15 @@ def handle_image(event: MessageEvent):
     # 画像を保存して状態を更新
     user_states[user_id] = {
         "image_message_id": message_id,
-        "status": "waiting_prompt"
+        "status": "waiting_type"  # 内観/外観選択待ち
     }
 
-    # カスタムプロンプト入力を促す
-    asyncio.create_task(send_prompt_input_message(user_id, event.reply_token))
+    # 内観/外観選択を促す
+    asyncio.create_task(send_type_selection(user_id, event.reply_token))
 
 
-async def send_prompt_input_message(user_id: str, reply_token: str):
-    """カスタムプロンプト入力メッセージ送信"""
+async def send_type_selection(user_id: str, reply_token: str):
+    """内観/外観選択メッセージ送信"""
     async with AsyncApiClient(configuration) as api_client:
         api = AsyncMessagingApi(api_client)
 
@@ -158,13 +184,57 @@ async def send_prompt_input_message(user_id: str, reply_token: str):
                 reply_token=reply_token,
                 messages=[
                     TextMessage(
-                        text="追加の指示があれば入力してください。\n\n"
-                             "例：\n"
-                             "・モダンな雰囲気で\n"
-                             "・和風テイストに\n"
-                             "・外壁をブラックに\n"
-                             "・緑を多めに\n\n"
-                             "そのまま生成する場合は「OK」と送信してください。",
+                        text="外観パースですか？内観パースですか？",
+                        quick_reply=QuickReply(
+                            items=[
+                                QuickReplyItem(
+                                    action=MessageAction(
+                                        label="外観",
+                                        text="外観"
+                                    )
+                                ),
+                                QuickReplyItem(
+                                    action=MessageAction(
+                                        label="内観",
+                                        text="内観"
+                                    )
+                                ),
+                            ]
+                        )
+                    )
+                ]
+            )
+        )
+
+
+async def send_prompt_input_message(user_id: str, reply_token: str, parse_type: str):
+    """カスタムプロンプト入力メッセージ送信"""
+    async with AsyncApiClient(configuration) as api_client:
+        api = AsyncMessagingApi(api_client)
+
+        if parse_type == "exterior":
+            example_text = ("追加の指示があれば入力してください。\n\n"
+                           "例：\n"
+                           "・モダンな雰囲気で\n"
+                           "・和風テイストに\n"
+                           "・外壁をブラックに\n"
+                           "・緑を多めに\n\n"
+                           "そのまま生成する場合は「OK」と送信してください。")
+        else:
+            example_text = ("追加の指示があれば入力してください。\n\n"
+                           "例：\n"
+                           "・モダンな雰囲気で\n"
+                           "・和風テイストに\n"
+                           "・床を無垢材に\n"
+                           "・観葉植物を追加\n\n"
+                           "そのまま生成する場合は「OK」と送信してください。")
+
+        await api.reply_message(
+            ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[
+                    TextMessage(
+                        text=example_text,
                         quick_reply=QuickReply(
                             items=[
                                 QuickReplyItem(
@@ -205,24 +275,48 @@ def handle_text(event: MessageEvent):
     user_id = event.source.user_id
     text = event.message.text
 
-    # プロンプト入力待ちの場合
-    if user_id in user_states and user_states[user_id].get("status") == "waiting_prompt":
+    if user_id not in user_states:
+        # 画像を送るよう促す
+        asyncio.create_task(send_prompt_image_message(user_id, event.reply_token))
+        return
+
+    state = user_states[user_id]
+
+    # 内観/外観選択待ち
+    if state.get("status") == "waiting_type":
+        if text == "外観":
+            user_states[user_id]["parse_type"] = "exterior"
+            user_states[user_id]["status"] = "waiting_prompt"
+            asyncio.create_task(send_prompt_input_message(user_id, event.reply_token, "exterior"))
+        elif text == "内観":
+            user_states[user_id]["parse_type"] = "interior"
+            user_states[user_id]["status"] = "waiting_prompt"
+            asyncio.create_task(send_prompt_input_message(user_id, event.reply_token, "interior"))
+        else:
+            asyncio.create_task(send_type_selection(user_id, event.reply_token))
+        return
+
+    # プロンプト入力待ち
+    if state.get("status") == "waiting_prompt":
         # カスタムプロンプトを取得（OKの場合は空）
         custom_prompt = "" if text.upper() == "OK" else f"\n・{text}"
+        parse_type = state.get("parse_type", "exterior")
 
         # 生成開始
         asyncio.create_task(
             process_generation(
                 user_id,
-                user_states[user_id]["image_message_id"],
+                state["image_message_id"],
+                parse_type,
                 custom_prompt,
                 event.reply_token
             )
         )
         del user_states[user_id]
-    else:
-        # 画像を送るよう促す
-        asyncio.create_task(send_prompt_image_message(user_id, event.reply_token))
+        return
+
+    # その他
+    asyncio.create_task(send_prompt_image_message(user_id, event.reply_token))
 
 
 async def send_prompt_image_message(user_id: str, reply_token: str):
@@ -245,8 +339,6 @@ async def send_prompt_image_message(user_id: str, reply_token: str):
         )
 
 
-
-
 async def send_limit_reached_message(user_id: str, reply_token: str):
     """無料枠上限到達メッセージ"""
     async with AsyncApiClient(configuration) as api_client:
@@ -267,8 +359,8 @@ async def send_limit_reached_message(user_id: str, reply_token: str):
         )
 
 
-async def process_generation(user_id: str, image_message_id: str, custom_prompt: str, reply_token: str):
-    """画像生成処理"""
+async def process_generation(user_id: str, image_message_id: str, parse_type: str, custom_prompt: str, reply_token: str):
+    """画像生成処理（4枚同時生成）"""
     async with AsyncApiClient(configuration) as api_client:
         api = AsyncMessagingApi(api_client)
 
@@ -277,7 +369,7 @@ async def process_generation(user_id: str, image_message_id: str, custom_prompt:
             ReplyMessageRequest(
                 reply_token=reply_token,
                 messages=[
-                    TextMessage(text="生成中です...30秒ほどお待ちください")
+                    TextMessage(text="4枚同時生成中です...1〜2分ほどお待ちください")
                 ]
             )
         )
@@ -286,31 +378,46 @@ async def process_generation(user_id: str, image_message_id: str, custom_prompt:
             # LINE から画像を取得
             image_content = await get_line_image(image_message_id)
 
-            # プロンプト生成（カスタムプロンプトを追加）
-            prompt = BASE_PROMPT.format(custom_prompt=custom_prompt)
+            # プロンプト生成（内観/外観で切り替え）
+            if parse_type == "interior":
+                prompt = INTERIOR_BASE_PROMPT.format(custom_prompt=custom_prompt)
+                type_name = "内観"
+            else:
+                prompt = EXTERIOR_BASE_PROMPT.format(custom_prompt=custom_prompt)
+                type_name = "外観"
 
-            # KIE.AI で生成
-            result_url = await generate_parse(image_content, prompt)
+            # KIE.AI で4枚同時生成
+            result_urls = await generate_parse_multi(image_content, prompt, count=4)
 
-            if result_url:
+            # 成功した画像をフィルタリング
+            successful_urls = [url for url in result_urls if url is not None]
+
+            if successful_urls:
                 # 使用回数をカウント
                 user_db.increment_usage(user_id)
                 remaining = user_db.get_remaining_count(user_id)
 
-                # 結果を送信
+                # 結果を送信（最大5メッセージまで）
+                messages = []
+                for url in successful_urls[:4]:  # 最大4枚
+                    messages.append(
+                        ImageMessage(
+                            original_content_url=url,
+                            preview_image_url=url
+                        )
+                    )
+
+                messages.append(
+                    TextMessage(
+                        text=f"完成しました！（{type_name}パース {len(successful_urls)}枚）\n\n"
+                             f"今月の残り回数: {remaining}回"
+                    )
+                )
+
                 await api.push_message(
                     PushMessageRequest(
                         to=user_id,
-                        messages=[
-                            ImageMessage(
-                                original_content_url=result_url,
-                                preview_image_url=result_url
-                            ),
-                            TextMessage(
-                                text=f"完成しました！\n\n"
-                                     f"今月の残り回数: {remaining}回"
-                            )
-                        ]
+                        messages=messages
                     )
                 )
             else:

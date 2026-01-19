@@ -5,7 +5,7 @@ import asyncio
 import base64
 import io
 import json
-from typing import Optional
+from typing import Optional, List
 
 import httpx
 from PIL import Image
@@ -135,9 +135,56 @@ async def poll_webhook(uuid: str, timeout: int = 120) -> Optional[str]:
     return None
 
 
+async def generate_parse_single(image_url: str, prompt: str, model: str) -> Optional[str]:
+    """
+    単一の画像生成タスクを実行
+
+    Args:
+        image_url: アップロード済み画像URL
+        prompt: 生成プロンプト
+        model: 使用するモデル
+
+    Returns:
+        生成された画像のURL、失敗時はNone
+    """
+    try:
+        # Webhookトークン取得
+        wh_uuid = await get_webhook_token()
+        if not wh_uuid:
+            print(f"Webhook token failed for {model}")
+            return None
+
+        callback_url = f"https://webhook.site/{wh_uuid}"
+
+        # タスク作成
+        task_payload = {
+            "model": model,
+            "callBackUrl": callback_url,
+            "input": {
+                "prompt": prompt,
+                "image_urls": [image_url],
+                "aspect_ratio": "16:9",
+                "quality": "high"
+            }
+        }
+
+        task_id, error = await create_task(task_payload)
+        if not task_id:
+            print(f"Task creation failed for {model}: {error}")
+            return None
+
+        # 結果をポーリング
+        result_url = await poll_webhook(wh_uuid, timeout=180)
+        return result_url
+
+    except Exception as e:
+        print(f"Generation error for {model}: {e}")
+        return None
+
+
 async def generate_parse(image_bytes: bytes, prompt: str) -> Optional[str]:
     """
-    画像からパースを生成（メイン関数）
+    画像からパースを生成（単一生成・後方互換用）
 
     Args:
         image_bytes: 画像のバイトデータ
@@ -156,35 +203,64 @@ async def generate_parse(image_bytes: bytes, prompt: str) -> Optional[str]:
             print("Image upload failed")
             return None
 
-        # 3. Webhookトークン取得
-        wh_uuid = await get_webhook_token()
-        if not wh_uuid:
-            print("Webhook token failed")
-            return None
-
-        callback_url = f"https://webhook.site/{wh_uuid}"
-
-        # 4. タスク作成（Seedream 4.5 Editを使用 - 最も安定）
-        task_payload = {
-            "model": "seedream/4.5-edit",
-            "callBackUrl": callback_url,
-            "input": {
-                "prompt": prompt,
-                "image_urls": [image_url],
-                "aspect_ratio": "16:9",
-                "quality": "high"
-            }
-        }
-
-        task_id, error = await create_task(task_payload)
-        if not task_id:
-            print(f"Task creation failed: {error}")
-            return None
-
-        # 5. 結果をポーリング
-        result_url = await poll_webhook(wh_uuid, timeout=120)
-        return result_url
+        # 3. 単一生成
+        return await generate_parse_single(image_url, prompt, "seedream/4.5-edit")
 
     except Exception as e:
         print(f"Generation error: {e}")
         return None
+
+
+async def generate_parse_multi(image_bytes: bytes, prompt: str, count: int = 4) -> list[Optional[str]]:
+    """
+    画像からパースを複数枚同時生成
+
+    Args:
+        image_bytes: 画像のバイトデータ
+        prompt: 生成プロンプト
+        count: 生成枚数（デフォルト4枚）
+
+    Returns:
+        生成された画像のURLリスト
+    """
+    # 使用する4つの異なるモデル/エンジン
+    MODELS = [
+        "seedream/4.5-edit",
+        "flux/1.1-pro-ultra",
+        "ideogram/v2",
+        "recraft/v3",
+    ]
+
+    try:
+        # 1. 画像をBase64に変換
+        base64_image = image_bytes_to_base64(image_bytes)
+
+        # 2. 画像をアップロード（1回だけ）
+        image_url = await upload_image(base64_image)
+        if not image_url:
+            print("Image upload failed")
+            return [None] * count
+
+        # 3. 4つのモデルで同時生成
+        tasks = []
+        for i in range(min(count, len(MODELS))):
+            model = MODELS[i]
+            tasks.append(generate_parse_single(image_url, prompt, model))
+
+        # 全タスクを並列実行
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 結果を整理（例外はNoneに変換）
+        urls = []
+        for result in results:
+            if isinstance(result, Exception):
+                print(f"Task exception: {result}")
+                urls.append(None)
+            else:
+                urls.append(result)
+
+        return urls
+
+    except Exception as e:
+        print(f"Multi-generation error: {e}")
+        return [None] * count
