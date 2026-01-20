@@ -330,7 +330,45 @@ async def process_generation(user_id: str, image_message_id: str, parse_type: st
                 prompt = FLOOR_PLAN_BASE_PROMPT.format(custom_prompt=custom_prompt)
                 type_name = "平面図"
             
-            # ... (rest of the function logic regarding generation loop)
+            # コールバック関数: 1枚生成されるたびに送信
+            async def send_image_callback(index, url):
+                if url:
+                    await api.push_message(
+                        PushMessageRequest(
+                            to=user_id,
+                            messages=[
+                                ImageMessage(
+                                    original_content_url=url,
+                                    preview_image_url=url
+                                )
+                            ]
+                        )
+                    )
+
+            # 生成実行
+            # services/kie_api.py の generate_parse_multi を呼び出す
+            await kie_service.generate_parse_multi(image_content, prompt, count=4, callback=send_image_callback)
+
+            # 使用回数をカウント
+            user_db.increment_usage(user_id)
+            remaining = user_db.get_remaining_count(user_id)
+            
+            if remaining <= 2:
+                 await api.push_message(
+                    PushMessageRequest(
+                        to=user_id,
+                        messages=[TextMessage(text=f"残り生成可能回数: {remaining}回")]
+                    )
+                )
+
+        except Exception as e:
+            log(f"Process generation error: {e}")
+            await api.push_message(
+                PushMessageRequest(
+                    to=user_id,
+                    messages=[TextMessage(text="申し訳ありません。画像生成中にエラーが発生しました。")]
+                )
+            )
 
 
 @app.get("/health")
