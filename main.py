@@ -56,60 +56,60 @@ user_db = UserDB()
 # ユーザーの状態管理（メモリ上、本番はRedis推奨）
 user_states = {}
 
-# 外観用ベースプロンプト
-EXTERIOR_BASE_PROMPT = """添付の建築パースをフォトリアルにしてください。
-建物の形状・構成・アングル・奥行・カメラ位置・パースラインは絶対に変更しないでください。
-素材・質感・光の表現だけを実写に寄せてください。
+# Exterior Base Prompt
+EXTERIOR_BASE_PROMPT = """Transform this architectural render into a photorealistic exterior image.
+DO NOT change the building shape, composition, angle, depth, camera position, or perspective lines.
+Only enhance materials, textures, and lighting to look like a real photograph.
 
-【必ず守ってほしい内容】
-・外観の形状を一切変えない
-・窓の位置、壁のライン、屋根形状、陰影の付き方の方向はそのまま
-・広角率を変えない
-・縦横比（例：3:4、横長）を維持
-・背景の構成を変えない（変更したい場合は指定する）
+【STRICT REQUIREMENTS】
+- Do not alter the exterior shape at all
+- Keep window positions, wall lines, roof shape, and shadow directions exactly the same
+- Maintain the same wide-angle ratio
+- Preserve the aspect ratio (e.g., 3:4, landscape)
+- Do not change the background composition
 
-【今回のフォトリアル化条件】
-・外壁は窯業系サイディングの質感を出す
-・道路はアスファルトの質感を出す
-・背景：住宅街
-・コンクリート反射：なし
-・窓ガラス反射：あり
-・天候：晴れ
-・人物：不要
+【PHOTOREALISTIC CONDITIONS】
+- Exterior walls: ceramic siding texture
+- Road: asphalt texture
+- Background: residential neighborhood
+- Concrete reflection: none
+- Window glass reflection: yes
+- Weather: sunny
+- People: none
 {custom_prompt}
 
-【重要】
-建物の形状や寸法感が変わるような解釈は絶対にしないでください。
-元画像の輪郭線と構造はそのまま、質感だけを高精細フォトリアルに仕上げてください。"""
+【IMPORTANT】
+Do not interpret or change the building's shape or proportions.
+Keep the original contour lines and structure intact, only enhance textures to high-quality photorealistic finish."""
 
-# 内観用ベースプロンプト
-INTERIOR_BASE_PROMPT = """添付の建築内観パースをフォトリアルにしてください。
-部屋の形状・構成・アングル・奥行・カメラ位置・パースラインは絶対に変更しないでください。
-素材・質感・光の表現だけを実写に寄せてください。
+# Interior Base Prompt
+INTERIOR_BASE_PROMPT = """Transform this architectural interior render into a photorealistic interior image.
+DO NOT change the room shape, composition, angle, depth, camera position, or perspective lines.
+Only enhance materials, textures, and lighting to look like a real photograph.
 
-【必ず守ってほしい内容】
-・部屋の形状を一切変えない
-・窓の位置、壁のライン、天井形状、陰影の付き方の方向はそのまま
-・広角率を変えない
-・縦横比（例：3:4、横長）を維持
-・家具・設備の配置を変えない
+【STRICT REQUIREMENTS】
+- Do not alter the room shape at all
+- Keep window positions, wall lines, ceiling shape, and shadow directions exactly the same
+- Maintain the same wide-angle ratio
+- Preserve the aspect ratio (e.g., 3:4, landscape)
+- Do not change furniture or equipment placement
 
-【今回のフォトリアル化条件】
-・床材はフローリングの質感を出す
-・壁は白いクロスの質感を出す
-・天井は白いクロスの質感を出す
-・窓ガラス反射：あり
-・照明：自然光メイン（昼間の雰囲気）
-・人物：不要
+【PHOTOREALISTIC CONDITIONS】
+- Floor: hardwood flooring texture
+- Walls: white wallpaper texture
+- Ceiling: white wallpaper texture
+- Window glass reflection: yes
+- Lighting: natural daylight (daytime atmosphere)
+- People: none
 {custom_prompt}
 
-【重要】
-部屋の形状や寸法感が変わるような解釈は絶対にしないでください。
-元画像の輪郭線と構造はそのまま、質感だけを高精細フォトリアルに仕上げてください。"""
+【IMPORTANT】
+Do not interpret or change the room's shape or proportions.
+Keep the original contour lines and structure intact, only enhance textures to high-quality photorealistic finish."""
 
 
-# 平面図用ベースプロンプト（等角投影3Dレンダリング）
-FLOOR_PLAN_BASE_PROMPT = """この間取り図すべてを俯瞰図のまま等角投影のフォトリアルな3Dレンダリングにしてください。
+# Floor Plan Base Prompt (Isometric 3D Rendering)
+FLOOR_PLAN_BASE_PROMPT = """Convert this entire floor plan into a photorealistic isometric 3D rendering while maintaining the bird's-eye view perspective.
 
 {custom_prompt}
 """
