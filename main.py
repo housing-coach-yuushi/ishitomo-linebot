@@ -127,19 +127,24 @@ async def handle_events_async(body: str, signature: str):
     import json
     from linebot.v3.webhooks import Event
 
-    events_data = json.loads(body)
+    try:
+        events_data = json.loads(body)
 
-    for event_data in events_data.get("events", []):
-        event_type = event_data.get("type")
+        for event_data in events_data.get("events", []):
+            event_type = event_data.get("type")
 
-        if event_type == "follow":
-            await handle_follow_async(event_data)
-        elif event_type == "message":
-            message_type = event_data.get("message", {}).get("type")
-            if message_type == "image":
-                await handle_image_async(event_data)
-            elif message_type == "text":
-                await handle_text_async(event_data)
+            if event_type == "follow":
+                await handle_follow_async(event_data)
+            elif event_type == "message":
+                message_type = event_data.get("message", {}).get("type")
+                if message_type == "image":
+                    await handle_image_async(event_data)
+                elif message_type == "text":
+                    await handle_text_async(event_data)
+    except Exception as e:
+        print(f"Error in handle_events_async: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 async def handle_follow_async(event_data: dict):
@@ -156,72 +161,90 @@ async def handle_follow_async(event_data: dict):
 
 async def handle_image_async(event_data: dict):
     """画像受信時の処理（非同期版）"""
-    user_id = event_data["source"]["userId"]
-    message_id = event_data["message"]["id"]
-    reply_token = event_data["replyToken"]
+    try:
+        user_id = event_data["source"]["userId"]
+        message_id = event_data["message"]["id"]
+        reply_token = event_data["replyToken"]
 
-    # 無料枠チェック
-    remaining = user_db.get_remaining_count(user_id)
-    if remaining <= 0:
-        await send_limit_reached_message(user_id, reply_token)
-        return
+        print(f"Image received from user: {user_id}, message_id: {message_id}")
 
-    # 画像を保存して状態を更新
-    user_states[user_id] = {
-        "image_message_id": message_id,
-        "status": "waiting_type"  # 内観/外観選択待ち
-    }
+        # 無料枠チェック
+        remaining = user_db.get_remaining_count(user_id)
+        if remaining <= 0:
+            await send_limit_reached_message(user_id, reply_token)
+            return
 
-    # 内観/外観選択を促す
-    await send_type_selection(user_id, reply_token)
+        # 画像を保存して状態を更新
+        user_states[user_id] = {
+            "image_message_id": message_id,
+            "status": "waiting_type"  # 内観/外観選択待ち
+        }
+
+        print(f"User state updated: {user_states[user_id]}")
+
+        # 内観/外観選択を促す
+        await send_type_selection(user_id, reply_token)
+    except Exception as e:
+        print(f"Error in handle_image_async: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 async def handle_text_async(event_data: dict):
     """テキスト受信時の処理（非同期版）"""
-    user_id = event_data["source"]["userId"]
-    text = event_data["message"]["text"]
-    reply_token = event_data["replyToken"]
+    try:
+        user_id = event_data["source"]["userId"]
+        text = event_data["message"]["text"]
+        reply_token = event_data["replyToken"]
 
-    if user_id not in user_states:
-        # 画像を送るよう促す
+        print(f"Text received from user: {user_id}, text: {text}")
+
+        if user_id not in user_states:
+            # 画像を送るよう促す
+            await send_prompt_image_message(user_id, reply_token)
+            return
+
+        state = user_states[user_id]
+        print(f"Current user state: {state}")
+
+        # 内観/外観選択待ち
+        if state.get("status") == "waiting_type":
+            if text == "外観":
+                user_states[user_id]["parse_type"] = "exterior"
+                user_states[user_id]["status"] = "waiting_prompt"
+                await send_prompt_input_message(user_id, reply_token, "exterior")
+            elif text == "内観":
+                user_states[user_id]["parse_type"] = "interior"
+                user_states[user_id]["status"] = "waiting_prompt"
+                await send_prompt_input_message(user_id, reply_token, "interior")
+            else:
+                await send_type_selection(user_id, reply_token)
+            return
+
+        # プロンプト入力待ち
+        if state.get("status") == "waiting_prompt":
+            # カスタムプロンプトを取得（OKの場合は空）
+            custom_prompt = "" if text.upper() == "OK" else f"\n・{text}"
+            parse_type = state.get("parse_type", "exterior")
+
+            # 生成開始
+            await process_generation(
+                user_id,
+                state["image_message_id"],
+                parse_type,
+                custom_prompt,
+                reply_token
+            )
+            del user_states[user_id]
+            print(f"User state deleted after generation")
+            return
+
+        # その他
         await send_prompt_image_message(user_id, reply_token)
-        return
-
-    state = user_states[user_id]
-
-    # 内観/外観選択待ち
-    if state.get("status") == "waiting_type":
-        if text == "外観":
-            user_states[user_id]["parse_type"] = "exterior"
-            user_states[user_id]["status"] = "waiting_prompt"
-            await send_prompt_input_message(user_id, reply_token, "exterior")
-        elif text == "内観":
-            user_states[user_id]["parse_type"] = "interior"
-            user_states[user_id]["status"] = "waiting_prompt"
-            await send_prompt_input_message(user_id, reply_token, "interior")
-        else:
-            await send_type_selection(user_id, reply_token)
-        return
-
-    # プロンプト入力待ち
-    if state.get("status") == "waiting_prompt":
-        # カスタムプロンプトを取得（OKの場合は空）
-        custom_prompt = "" if text.upper() == "OK" else f"\n・{text}"
-        parse_type = state.get("parse_type", "exterior")
-
-        # 生成開始
-        await process_generation(
-            user_id,
-            state["image_message_id"],
-            parse_type,
-            custom_prompt,
-            reply_token
-        )
-        del user_states[user_id]
-        return
-
-    # その他
-    await send_prompt_image_message(user_id, reply_token)
+    except Exception as e:
+        print(f"Error in handle_text_async: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 
