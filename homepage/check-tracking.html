@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>トラッキング設定チェック</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #06c656;
+            margin-bottom: 10px;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border-left: 4px solid #28a745;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            color: #721c24;
+        }
+        .status.warning {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            color: #856404;
+        }
+        .icon {
+            font-size: 24px;
+            margin-right: 15px;
+        }
+        button {
+            background-color: #06c656;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #05a849;
+        }
+        .details {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .guide {
+            background-color: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .guide-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>📊 トラッキング設定チェック</h1>
+        <p>LINE広告配信前に、必要なトラッキングが正しく設定されているか確認します。</p>
+        <button onclick="runCheck()">チェック開始</button>
+
+        <div id="results" style="margin-top: 20px;"></div>
+    </div>
+
+    <script>
+        function runCheck() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>チェック中...</p>';
+
+            let html = '';
+            let allPassed = true;
+
+            // Check 1: Google Analytics
+            if (typeof gtag !== 'undefined') {
+                html += createStatus('success', 'Google Analytics (GA4) が検出されました ✓');
+
+                // Check if GA4 ID is configured
+                const scripts = document.querySelectorAll('script[src*="googletagmanager"]');
+                let gaId = 'G-XXXXXXXXXX';
+                scripts.forEach(script => {
+                    const match = script.src.match(/id=(G-[A-Z0-9]+)/);
+                    if (match) gaId = match[1];
+                });
+
+                if (gaId === 'G-XXXXXXXXXX') {
+                    html += createStatus('error', '測定IDが設定されていません。TRACKING_SETUP.md を参照してください。');
+                    allPassed = false;
+                } else {
+                    html += createStatus('success', `測定ID: ${gaId}`);
+                }
+            } else {
+                html += createStatus('error', 'Google Analytics (GA4) が検出されませんでした');
+                allPassed = false;
+            }
+
+            // Check 2: LINE Tag
+            if (typeof _lt !== 'undefined') {
+                html += createStatus('success', 'LINE Tag が検出されました ✓');
+            } else {
+                html += createStatus('warning', 'LINE Tag が検出されませんでした（広告配信時に設定してください）');
+            }
+
+            // Check 3: Event Tracking
+            const testButton = document.createElement('button');
+            testButton.textContent = 'LINEで友だち追加（テスト）';
+            testButton.style.display = 'none';
+            document.body.appendChild(testButton);
+
+            let eventTracked = false;
+            const originalGtag = window.gtag;
+            window.gtag = function() {
+                eventTracked = true;
+                if (originalGtag) originalGtag.apply(window, arguments);
+            };
+
+            testButton.click();
+            document.body.removeChild(testButton);
+
+            window.gtag = originalGtag;
+
+            if (eventTracked) {
+                html += createStatus('success', 'イベントトラッキングが動作しています ✓');
+            } else {
+                html += createStatus('error', 'イベントトラッキングが動作していません');
+                allPassed = false;
+            }
+
+            // Check 4: LINE Friend Add URL
+            const scriptContent = document.documentElement.innerHTML;
+            if (scriptContent.includes('line.me/R/ti/p/@')) {
+                if (scriptContent.includes('@YOUR_LINE_ID')) {
+                    html += createStatus('error', '友だち追加URLが設定されていません（@YOUR_LINE_ID のまま）');
+                    allPassed = false;
+                } else {
+                    html += createStatus('success', '友だち追加URLが設定されています ✓');
+                }
+            } else {
+                html += createStatus('warning', '友だち追加URLの設定を確認してください');
+            }
+
+            // Check 5: UTM Parameters Support
+            const currentUrl = new URL(window.location.href);
+            const utmSource = currentUrl.searchParams.get('utm_source');
+            const utmMedium = currentUrl.searchParams.get('utm_medium');
+            const utmCampaign = currentUrl.searchParams.get('utm_campaign');
+
+            if (utmSource || utmMedium || utmCampaign) {
+                html += createStatus('success', `UTMパラメータが検出されました: source=${utmSource || 'なし'}, medium=${utmMedium || 'なし'}, campaign=${utmCampaign || 'なし'}`);
+            } else {
+                html += createStatus('warning', 'UTMパラメータは検出されませんでした（広告URLに追加してください）');
+            }
+
+            // Summary
+            if (allPassed) {
+                html += '<div class="guide"><div class="guide-title">✅ すべての必須チェックが完了しました</div>';
+                html += '<p>LINE広告を配信する準備ができています。TRACKING_SETUP.md を参照して広告キャンペーンを作成してください。</p></div>';
+            } else {
+                html += '<div class="guide" style="background-color: #fff3cd; border-left-color: #ffc107;"><div class="guide-title" style="color: #856404;">⚠️ 設定が不完全です</div>';
+                html += '<p>TRACKING_SETUP.md を参照して、エラー項目を修正してください。このまま広告を配信すると効果測定ができません。</p></div>';
+            }
+
+            // Console test
+            html += '<div class="details"><strong>デバッグ情報:</strong><br>';
+            html += `GA4: ${typeof gtag !== 'undefined' ? 'OK' : 'NG'}<br>`;
+            html += `LINE Tag: ${typeof _lt !== 'undefined' ? 'OK' : 'Not configured'}<br>`;
+            html += `URL: ${window.location.href}<br>`;
+            html += `User Agent: ${navigator.userAgent}</div>`;
+
+            results.innerHTML = html;
+
+            // Send test event
+            if (typeof gtag !== 'undefined') {
+                gtag('event', 'tracking_check', {
+                    'all_passed': allPassed
+                });
+            }
+        }
+
+        function createStatus(type, message) {
+            const icons = {
+                success: '✅',
+                error: '❌',
+                warning: '⚠️'
+            };
+            return `<div class="status ${type}"><span class="icon">${icons[type]}</span><span>${message}</span></div>`;
+        }
+
+        // Auto-run on page load
+        window.addEventListener('load', function() {
+            setTimeout(runCheck, 500);
+        });
+    </script>
+</body>
+</html>
