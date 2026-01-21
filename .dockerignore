@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment
+.env
+.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+server.log
+
+# Database (will use Google Sheets)
+*.db
+*.sqlite
+*.sqlite3
+
+# Test files
+test_*.py
+
+# Documentation
+*.md
+SETUP_GUIDE.md
+STRIPE_SETUP.md
+LANDING_PAGE_DESIGN.md
+
+# Scripts
+scripts/
+run_local.sh
+
+# Config (local only)
+config/
+
+# Render specific
+render.yaml
+Procfile
+
+# Vercel specific
+vercel.json
