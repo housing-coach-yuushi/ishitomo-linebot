@@ -294,7 +294,7 @@ async def process_generation(user_id: str, image_message_id: str, parse_type: st
             ReplyMessageRequest(
                 reply_token=reply_token,
                 messages=[
-                    TextMessage(text="✨ 4枚の画像を生成中です...\n⏱️ 完成した画像から順次お届けします！")
+                    TextMessage(text="✨ 4枚の画像を生成中です...\n⏱️ 1〜3分程度かかります\n📸 完成した画像から順次お届けします！")
                 ]
             )
         )
