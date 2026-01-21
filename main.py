@@ -336,9 +336,42 @@ async def process_generation(user_id: str, image_message_id: str, parse_type: st
             # 使用回数をカウント
             user_db.increment_usage(user_id)
             remaining = user_db.get_remaining_count(user_id)
-            
-            if remaining <= 2:
-                 await api.push_message(
+
+            # 残り回数に応じたメッセージ送信
+            if remaining == 0:
+                # 0回になった場合：プレミアムプランへの案内
+                user = user_db.get_user(user_id)
+                is_premium = user and user["is_premium"]
+
+                # Stripe決済リンクを生成
+                payment_url = stripe_service.create_payment_link(user_id)
+                if not payment_url:
+                    payment_url = "https://buy.stripe.com/test_XXXXXX"
+
+                if is_premium:
+                    message = (
+                        "今月のプレミアム枠（15回）を使い切りました。\n\n"
+                        "来月1日に自動的にリセットされます。\n"
+                        "引き続きご利用ありがとうございます！"
+                    )
+                else:
+                    message = (
+                        "今月の無料枠（3回）を使い切りました。\n\n"
+                        "🌟 プレミアムプラン: 月額1,980円\n"
+                        "✨ 月15回まで生成可能（1回4枚）\n"
+                        "💰 コスト: 1回あたり約132円\n\n"
+                        f"お申し込みはこちら:\n{payment_url}"
+                    )
+
+                await api.push_message(
+                    PushMessageRequest(
+                        to=user_id,
+                        messages=[TextMessage(text=message)]
+                    )
+                )
+            elif remaining <= 2:
+                # 残り1〜2回の場合：残り回数を通知
+                await api.push_message(
                     PushMessageRequest(
                         to=user_id,
                         messages=[TextMessage(text=f"残り生成可能回数: {remaining}回")]
