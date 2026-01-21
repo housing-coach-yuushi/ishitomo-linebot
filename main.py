@@ -331,7 +331,7 @@ async def process_generation(user_id: str, image_message_id: str, parse_type: st
 
             # 生成実行
             # services/kie_api.py の generate_parse_multi を呼び出す
-            await kie_service.generate_parse_multi(image_content, prompt, count=4, callback=send_image_callback)
+            await generate_parse_multi(image_content, prompt, count=4, callback=send_image_callback)
 
             # 使用回数をカウント
             user_db.increment_usage(user_id)
