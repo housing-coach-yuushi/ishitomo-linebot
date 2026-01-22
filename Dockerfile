@@ -19,9 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY . .
 
-# Make entrypoint script executable
-RUN chmod +x entrypoint.sh
-
 # Create data directory for database
 RUN mkdir -p /data
 
@@ -29,5 +26,6 @@ RUN mkdir -p /data
 ENV PORT=8080
 EXPOSE 8080
 
-# Run the application
-CMD ["./entrypoint.sh"]
+# Run the application using shell to expand PORT variable
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
