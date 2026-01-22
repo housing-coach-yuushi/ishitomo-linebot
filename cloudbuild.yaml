@@ -1,0 +1,48 @@
+steps:
+  # Docker イメージのビルド
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/ishitomo-linebot:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/ishitomo-linebot:latest'
+      - '.'
+
+  # Docker イメージのプッシュ
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/ishitomo-linebot:$SHORT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/ishitomo-linebot:latest'
+
+  # Cloud Run へのデプロイ
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ishitomo-linebot'
+      - '--image=gcr.io/$PROJECT_ID/ishitomo-linebot:$SHORT_SHA'
+      - '--region=asia-northeast1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--memory=512Mi'
+      - '--cpu=1'
+      - '--timeout=300'
+      - '--max-instances=10'
+      - '--set-env-vars=LINE_CHANNEL_SECRET=${_LINE_CHANNEL_SECRET}'
+      - '--set-env-vars=LINE_CHANNEL_ACCESS_TOKEN=${_LINE_CHANNEL_ACCESS_TOKEN}'
+      - '--set-env-vars=KIEAI_API_KEY=${_KIEAI_API_KEY}'
+      - '--set-env-vars=GOOGLE_SHEETS_ID=${_GOOGLE_SHEETS_ID}'
+      - '--set-env-vars=GOOGLE_SERVICE_ACCOUNT_JSON=${_GOOGLE_SERVICE_ACCOUNT_JSON}'
+
+images:
+  - 'gcr.io/$PROJECT_ID/ishitomo-linebot:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/ishitomo-linebot:latest'
+
+timeout: '1200s'

@@ -60,6 +60,13 @@ class UserDB:
             self.usage_ws = self.sheet.add_worksheet(title="Usage", rows=1000, cols=3)
             self.usage_ws.append_row(["user_id", "used_at", "month"])
 
+        # Galleryシート（生成画像の保存用）
+        try:
+            self.gallery_ws = self.sheet.worksheet("Gallery")
+        except gspread.WorksheetNotFound:
+            self.gallery_ws = self.sheet.add_worksheet(title="Gallery", rows=1000, cols=6)
+            self.gallery_ws.append_row(["created_at", "user_id", "parse_type", "custom_prompt", "image_url", "original_image_id"])
+
     def create_user(self, user_id: str) -> bool:
         """ユーザー作成（存在しなければ）"""
         try:
@@ -131,28 +138,9 @@ class UserDB:
             return 0 # エラー時は0を返して動作を止めない（またはログ出す）
 
     def get_remaining_count(self, user_id: str) -> int:
-        """残り回数を取得"""
-        user = self.get_user(user_id)
-        if not user:
-            self.create_user(user_id)
-            user = self.get_user(user_id)
-            
-        used = self.get_monthly_usage(user_id)
-        
-        # プレミアムユーザーは月15回
-        if user and user["is_premium"]:
-            if user["premium_expires_at"]:
-                try:
-                    expires = datetime.fromisoformat(user["premium_expires_at"])
-                    if expires > datetime.now():
-                        remaining = settings.PREMIUM_MONTHLY_LIMIT - used
-                        return max(0, remaining)
-                except ValueError:
-                    pass # 日付フォーマットエラーなどは無視して無料枠へ
-                    
-        # 無料ユーザーは月3回
-        remaining = settings.FREE_MONTHLY_LIMIT - used
-        return max(0, remaining)
+        """残り回数を取得（社内用：無制限）"""
+        # 社内用のため、常に無制限（大きな数値を返す）
+        return 999999
 
     def increment_usage(self, user_id: str) -> bool:
         """使用回数をインクリメント"""
@@ -195,4 +183,20 @@ class UserDB:
             return True
         except Exception as e:
             print(f"Cancel premium error: {e}")
+            return False
+
+    def save_to_gallery(self, user_id: str, parse_type: str, custom_prompt: str, image_url: str, original_image_id: str = "") -> bool:
+        """生成画像をギャラリーに保存"""
+        try:
+            self.gallery_ws.append_row([
+                datetime.now().isoformat(),
+                user_id,
+                parse_type,
+                custom_prompt,
+                image_url,
+                original_image_id
+            ])
+            return True
+        except Exception as e:
+            print(f"Save to gallery error: {e}")
             return False
